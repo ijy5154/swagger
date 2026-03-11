@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="ko">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>OpenAPI Live Preview (Swagger UI) — Single HTML</title>
+        <!-- Tailwind CSS (CDN) -->
+        <script src="https://cdn.tailwindcss.com"></script>
+        <!-- Swagger UI assets (CDN) -->
+        <link
+            rel="stylesheet"
+            href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css"
+        />
+        <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+        <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
+        <!-- YAML parser (CDN) -->
+        <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+        <style>
+            /* Make the whole viewport usable */
+            html,
+            body {
+                height: 100%;
+            }
+            /* Improve text area readability */
+            textarea {
+                font-family:
+                    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+                    "Liberation Mono", "Courier New", monospace;
+            }
+            /* Prevent text selection while dragging divider */
+            .no-select {
+                user-select: none;
+                -webkit-user-select: none;
+            }
+        </style>
+    </head>
+    <body class="h-screen bg-gray-50 text-gray-900">
+        <!-- Header -->
+        <header class="border-b bg-white">
+            <div
+                class="max-w-[1400px] mx-auto px-4 py-3 flex items-center justify-between gap-4"
+            >
+                <div class="flex items-center gap-3">
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                        class="w-6 h-6 text-blue-600"
+                    >
+                        <path
+                            d="M12 2a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2zm1 14.59L8.41 12 10 10.41l3 3 5-5L19.59 10z"
+                        />
+                    </svg>
+                    <div>
+                        <h1 class="text-lg font-semibold">
+                            OpenAPI Live Preview
+                        </h1>
+                        <p class="text-xs text-gray-500">
+                            좌측에 OpenAPI (YAML/JSON) 스펙을 입력하면 우측에
+                            Swagger UI로 미리보기 됩니다. 소스는 저장되지
+                            않습니다.
+                        </p>
+                    </div>
+                </div>
+                <div class="text-xs text-gray-500 hidden sm:block">
+                    단일 HTML · Tailwind + Swagger UI
+                </div>
+            </div>
+        </header>
+
+        <!-- Main split pane -->
+        <main class="h-[calc(100vh-57px)]">
+            <!-- header height approx -->
+            <div id="split-root" class="h-full w-full flex overflow-hidden">
+                <!-- Left: Editor -->
+                <section
+                    id="left-pane"
+                    class="w-[50%] min-w-[280px] max-w-[80%] bg-white border-r flex flex-col"
+                >
+                    <!-- Toolbar -->
+                    <div
+                        class="flex items-center gap-2 p-3 border-b bg-gray-50"
+                    >
+                        <button
+                            id="btn-render"
+                            class="px-3 py-1.5 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 active:scale-[.99]"
+                        >
+                            렌더링
+                        </button>
+
+                        <label
+                            class="flex items-center gap-2 text-sm px-2 py-1 rounded-md border bg-white"
+                        >
+                            <input
+                                id="auto-render"
+                                type="checkbox"
+                                class="accent-blue-600"
+                                checked
+                            />
+                            자동 렌더링
+                        </label>
+
+                        <button
+                            id="btn-sample"
+                            class="px-3 py-1.5 rounded-md bg-gray-200 text-gray-800 text-sm hover:bg-gray-300"
+                        >
+                            샘플 불러오기
+                        </button>
+
+                        <div
+                            class="ml-auto flex items-center gap-2 text-xs text-gray-500"
+                        >
+                            <span class="hidden md:inline"
+                                >YAML 또는 JSON 입력 가능</span
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Editor -->
+                    <div class="flex-1 min-h-0">
+                        <textarea
+                            id="editor"
+                            class="w-full h-full p-3 outline-none resize-none leading-5 text-sm"
+                            spellcheck="false"
+                            placeholder="# 여기에 OpenAPI 스펙(YAML/JSON)을 붙여넣기 하세요"
+                        ></textarea>
+                    </div>
+
+                    <!-- Error area -->
+                    <div
+                        id="error-box"
+                        class="hidden border-t bg-red-50 text-red-700 text-sm px-3 py-2"
+                    ></div>
+                </section>
+
+                <!-- Divider -->
+                <div
+                    id="divider"
+                    class="w-1 bg-gray-200 cursor-col-resize relative"
+                >
+                    <div
+                        class="absolute inset-y-0 -left-1 -right-1 hover:bg-gray-300/60 transition"
+                    ></div>
+                </div>
+
+                <!-- Right: Swagger UI -->
+                <section id="right-pane" class="flex-1 min-w-[260px] bg-white">
+                    <div id="swagger-ui" class="h-full overflow-auto"></div>
+                </section>
+            </div>
+        </main>
+
+        <script>
+            // --- Sample minimal OpenAPI spec (YAML) ---
+            const SAMPLE_SPEC = `openapi: 3.0.3
+info:
+  title: Sample Pet API
+  version: 1.0.0
+  description: |-
+    간단한 예시 API입니다. 좌측 편집기에서 수정 후 우측 Swagger UI에서 결과를 확인하세요.
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /pets:
+    get:
+      summary: 반려동물 목록 조회
+      tags: [Pets]
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100 }
+          description: 한 번에 가져올 항목 수
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Pet'
+  /pets/{id}:
+    get:
+      summary: 반려동물 상세 조회
+      tags: [Pets]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+components:
+  schemas:
+    Pet:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          example: "a1b2c3"
+        name:
+          type: string
+          example: "Coco"
+        tag:
+          type: string
+          nullable: true
+`;
+
+            // --- Elements ---
+            const editorEl = document.getElementById("editor");
+            const errorBox = document.getElementById("error-box");
+            const btnRender = document.getElementById("btn-render");
+            const btnSample = document.getElementById("btn-sample");
+            const autoRenderChk = document.getElementById("auto-render");
+
+            // --- Local storage keys ---
+            const LS_KEY = "openapi-live-preview-editor";
+
+            // --- Init editor content from localStorage or sample ---
+            const stored = localStorage.getItem(LS_KEY);
+            editorEl.value =
+                stored && stored.trim().length > 0 ? stored : SAMPLE_SPEC;
+
+            // --- Utility: Debounce ---
+            function debounce(fn, wait = 500) {
+                let t;
+                return (...args) => {
+                    clearTimeout(t);
+                    t = setTimeout(() => fn.apply(null, args), wait);
+                };
+            }
+
+            // --- Parse YAML or JSON ---
+            function parseSpec(src) {
+                const text = src.trim();
+                if (!text) throw new Error("스펙이 비어 있습니다.");
+                // Heuristic: if starts with { or [ treat as JSON, else YAML
+                if (/^[\[{]/.test(text)) {
+                    return JSON.parse(text);
+                }
+                return jsyaml.load(text);
+            }
+
+            // --- Swagger UI instance holder ---
+            let uiInstance = null;
+
+            // --- Render function ---
+            function renderSpec() {
+                const source = editorEl.value;
+                try {
+                    const specObj = parseSpec(source);
+                    // Clear error
+                    errorBox.classList.add("hidden");
+                    errorBox.textContent = "";
+
+                    // Recreate Swagger UI
+                    const mount = document.getElementById("swagger-ui");
+                    mount.innerHTML = "";
+
+                    uiInstance = SwaggerUIBundle({
+                        dom_id: "#swagger-ui",
+                        spec: specObj,
+                        deepLinking: true,
+                        presets: [
+                            SwaggerUIBundle.presets.apis,
+                            SwaggerUIStandalonePreset,
+                        ],
+                        layout: "BaseLayout",
+                        // Try to infer version automatically
+                        tryItOutEnabled: true,
+                        syntaxHighlight: { activated: true, theme: "agate" },
+                        docExpansion: "list",
+                        defaultModelsExpandDepth: 0,
+                        requestSnippetsEnabled: true,
+                    });
+                } catch (err) {
+                    console.error(err);
+                    errorBox.textContent =
+                        "파싱/렌더링 오류: " +
+                        (err && err.message ? err.message : String(err));
+                    errorBox.classList.remove("hidden");
+                }
+            }
+
+            // --- Persist editor input ---
+            editorEl.addEventListener("input", () => {
+                localStorage.setItem(LS_KEY, editorEl.value);
+            });
+
+            // --- Auto render on input (debounced) ---
+            const debouncedRender = debounce(() => {
+                if (autoRenderChk.checked) renderSpec();
+            }, 600);
+            editorEl.addEventListener("input", debouncedRender);
+
+            // --- Buttons ---
+            btnRender.addEventListener("click", renderSpec);
+            btnSample.addEventListener("click", () => {
+                editorEl.value = SAMPLE_SPEC;
+                localStorage.setItem(LS_KEY, editorEl.value);
+                renderSpec();
+            });
+
+            // --- Initial render ---
+            renderSpec();
+
+            // --- Resizable split ---
+            (function enableResize() {
+                const root = document.getElementById("split-root");
+                const left = document.getElementById("left-pane");
+                const right = document.getElementById("right-pane");
+                const divider = document.getElementById("divider");
+
+                let dragging = false;
+
+                const startDrag = (e) => {
+                    dragging = true;
+                    document.body.classList.add("no-select");
+                };
+
+                const onDrag = (e) => {
+                    if (!dragging) return;
+                    const rect = root.getBoundingClientRect();
+                    const x =
+                        (e.touches ? e.touches[0].clientX : e.clientX) -
+                        rect.left;
+                    const pct = Math.min(
+                        80,
+                        Math.max(20, (x / rect.width) * 100),
+                    );
+                    left.style.width = pct + "%";
+                    right.style.width = 100 - pct + "%";
+                };
+
+                const endDrag = () => {
+                    dragging = false;
+                    document.body.classList.remove("no-select");
+                };
+
+                divider.addEventListener("mousedown", startDrag);
+                divider.addEventListener("touchstart", startDrag);
+                window.addEventListener("mousemove", onDrag);
+                window.addEventListener("touchmove", onDrag);
+                window.addEventListener("mouseup", endDrag);
+                window.addEventListener("touchend", endDrag);
+            })();
+        </script>
+    </body>
+</html>
